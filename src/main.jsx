@@ -2,6 +2,9 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Activity,Plus,Link2,Trash2,Download,Upload,Save,MapPin,RadioTower,GitBranch,Monitor,Settings2,Calculator,Route,RotateCcw,Undo2,Redo2,Search,LocateFixed,Sun,Moon,Menu,Lock,Unlock} from 'lucide-react';
 import './style.css';
+import { AuthProvider, useAuth } from './auth/AuthProvider';
+import AuthPage from './auth/AuthPage';
+import { saveCloudProject, listCloudProjects, loadCloudProject, deleteCloudProject } from './lib/cloudProjects';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -84,6 +87,9 @@ function compatibility(a,b){
  return {ok:true,reason:'Compatible fiber connection.'};
 }
 function App(){
+const { user, signOut } = useAuth();
+const [accountMenu, setAccountMenu] = useState(false);
+ const [cloudProjectId,setCloudProjectId]=useState(null);
  const [nodes,setNodes]=useState(()=>{try{const d=JSON.parse(localStorage.getItem('fiber-planner-v8')||localStorage.getItem('fiber-planner-v5')||'null');return d?.nodes||starterNodes}catch{return starterNodes}});
  const [links,setLinks]=useState(()=>{try{const d=JSON.parse(localStorage.getItem('fiber-planner-v8')||localStorage.getItem('fiber-planner-v5')||'null');return d?.links||starterLinks}catch{return starterLinks}});
  const [selected,setSelected]=useState('sp1'),[selectedLink,setSelectedLink]=useState(null);
@@ -116,6 +122,85 @@ function App(){
  },[nodes,links]);
  function travelHistory(delta){const h=historyRef.current,next=h.index+delta;if(next<0||next>=h.items.length)return;h.index=next;h.restoring=true;const d=JSON.parse(h.items[next]);setNodes(d.nodes);setLinks(d.links);}
  function saveProject(){try{localStorage.setItem('fiber-planner-v8',JSON.stringify({version:5,nodes,links,settings}));setSave('Saved');setNotice('Project saved on this device.')}catch{setSave('Save failed')}}
+ async function saveToCloud(){
+  if(!user?.id){setNotice('Please sign in first.');return;}
+  const name=prompt('Enter a name for this cloud project:', 'Fiber Planner Project');
+  if(!name?.trim())return;
+  try{
+   const saved=await saveCloudProject({
+    userId:user.id,
+    projectId:cloudProjectId,
+    name:name.trim(),
+    data:{version:5,nodes,links,settings}
+   });
+   setCloudProjectId(saved.id);
+   setNotice('Cloud project saved: '+saved.project_name);
+  }catch(error){
+   setNotice('Cloud save failed: '+error.message);
+  }
+ }
+
+ async function manageCloudProjects(){
+  if(!user?.id){setNotice('Please sign in first.');return;}
+  try{
+   const projects=await listCloudProjects(user.id);
+   if(!projects.length){setNotice('You have no cloud projects yet.');return;}
+   const choices=projects.map((p,i)=>
+    (i+1)+'. '+p.project_name+' — '+new Date(p.updated_at).toLocaleString()
+   ).join('\n');
+
+   const answer=prompt(
+    'MY CLOUD PROJECTS\n\n'+choices+
+    '\n\nEnter project number to manage:'
+   );
+   if(answer===null)return;
+
+   const index=Number(answer)-1;
+   if(!Number.isInteger(index)||index<0||index>=projects.length){
+    setNotice('Invalid project selection.');return;
+   }
+
+   const selectedProject=projects[index];
+   const action=prompt(
+    'Project: '+selectedProject.project_name+
+    '\n\nType L to load or D to delete.',
+    'L'
+   );
+   if(!action)return;
+
+   if(action.trim().toLowerCase()==='l'){
+    if(!confirm('Replace your current topology with this cloud project?'))return;
+
+    const record=await loadCloudProject(user.id,selectedProject.id);
+    const data=record.project_data;
+
+    if(!data||!Array.isArray(data.nodes)||!Array.isArray(data.links)){
+     setNotice('Invalid cloud project data.');return;
+    }
+
+    setNodes(data.nodes);
+    setLinks(data.links);
+    setSettings(data.settings||{
+     launch:5,attenuation:.35,spliceLoss:.1,
+     connectorLoss:.3,sensitivity:-27,margin:3
+    });
+    setCloudProjectId(record.id);
+    setNotice('Loaded: '+record.project_name);
+
+   }else if(action.trim().toLowerCase()==='d'){
+    if(!confirm('Permanently delete '+selectedProject.project_name+'?'))return;
+
+    await deleteCloudProject(user.id,selectedProject.id);
+    if(cloudProjectId===selectedProject.id)setCloudProjectId(null);
+    setNotice('Cloud project deleted.');
+   }else{
+    setNotice('No action taken.');
+   }
+  }catch(error){
+   setNotice('Cloud operation failed: '+error.message);
+  }
+ }
+
  function locateMap(){if(!navigator.geolocation){setNotice('Location is not supported by this browser.');return;}navigator.geolocation.getCurrentPosition(pos=>{const {latitude,longitude}=pos.coords;if(geoMapRef.current){geoMapRef.current.setView([latitude,longitude],17);L.marker([latitude,longitude]).addTo(geoMapRef.current).bindPopup('Your current location').openPopup();}setNotice(`Map centered at ${latitude.toFixed(6)}, ${longitude.toFixed(6)}.`)},err=>setNotice('Location unavailable: '+err.message),{enableHighAccuracy:true,timeout:12000});}
  async function searchMap(){const q=mapQuery.trim();if(!q)return;const coords=q.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);if(coords){const lat=Number(coords[1]),lon=Number(coords[2]);if(Math.abs(lat)<=90&&Math.abs(lon)<=180){geoMapRef.current?.setView([lat,lon],17);setNotice(`Map centered at ${lat.toFixed(6)}, ${lon.toFixed(6)}.`);return;}}setMapSearchBusy(true);try{const res=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`);const data=await res.json();if(!data.length){setNotice('No matching map location found.');return;}const lat=Number(data[0].lat),lon=Number(data[0].lon);if(geoMapRef.current)geoMapRef.current.setView([lat,lon],16);setNotice(`Found ${data[0].display_name}`);}catch{setNotice('Map search failed. Check your internet connection.')}finally{setMapSearchBusy(false);}}
  useEffect(()=>{
@@ -212,9 +297,43 @@ function App(){
     <button title="Redo" disabled={historyRef.current.index>=historyRef.current.items.length-1} onClick={()=>travelHistory(1)}><Redo2 size={17}/></button>
     <button title="Save project" onClick={saveProject}><Save size={17}/></button>
     <button title="Toggle theme" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')}>{theme==='dark'?<Sun size={17}/>:<Moon size={17}/>}</button>
-   </div>
+<div className="account-wrapper">
+  <button
+    className="account-button"
+    onClick={() => setAccountMenu(v => !v)}
+    title="Account settings"
+  >
+    <Lock size={17}/>
+    Account
+  </button>
+
+  {accountMenu && (
+    <div className="account-dropdown">
+      <strong>Authenticated user</strong>
+      <small>{user?.email}</small>
+
+      <button onClick={async () => {
+        if (!confirm('Are you sure you want to sign out?')) return;
+
+        const { error } = await signOut();
+
+        if (error) {
+          setNotice(error.message);
+        } else {
+          setAccountMenu(false);
+        }
+      }}>
+        <Unlock size={15}/>
+        Sign out
+      </button>
+    </div>
+  )}
+</div>
+</div>
    {projectMenu&&<div className="project-dropdown">
     <button onClick={()=>{saveProject();setProjectMenu(false)}}><Save size={15}/> Save project</button>
+      <button onClick={()=>{saveToCloud();setProjectMenu(false)}}><Save size={15}/> Save to Cloud</button>
+      <button onClick={()=>{manageCloudProjects();setProjectMenu(false)}}><Download size={15}/> My Cloud Projects</button>
     <button onClick={()=>{exportJSON();setProjectMenu(false)}}><Download size={15}/> Export project JSON</button>
     <button onClick={()=>{importRef.current.click();setProjectMenu(false)}}><Upload size={15}/> Import project</button>
     <button onClick={()=>{exportCSV();setProjectMenu(false)}}><Calculator size={15}/> Export optical budget CSV</button>
@@ -295,7 +414,7 @@ function App(){
      {chosen.type==='fbt'&&<><label>FBT tap output ratio (%)<select value={chosen.tapPercent??10} onChange={e=>updateNode('tapPercent',Number(e.target.value))}>{Object.keys(FBT_LOSS).filter(v=>Number(v)<=50).map(v=><option value={v} key={v}>{v}% tap / {100-Number(v)}% through</option>)}</select></label><div className="calc-note">Tap port loss: <b>{FBT_LOSS[chosen.tapPercent??10]} dB</b> · Through port loss: <b>{FBT_LOSS[100-(chosen.tapPercent??10)]} dB</b><br/>Choose Tap or Through on each outgoing fiber link from this FBT coupler. Values follow the supplied loss chart.</div></>}
      {chosen.type==='splitter'&&<><label>Splitter ratio<select value={chosen.ratio} onChange={e=>updateNode('ratio',Number(e.target.value))}>{[2,4,8,16,32,64].map(v=><option value={v} key={v}>1:{v}</option>)}</select></label><label>Excess insertion loss (dB)<input type="number" min="0" step=".1" value={chosen.excess??1.2} onChange={e=>updateNode('excess',Number(e.target.value))}/></label><div className="calc-note">Ideal split loss: <b>{n(10*Math.log10(chosen.ratio))} dB</b> + excess loss {n(chosen.excess)} dB</div></>}
      {chosen.type==='endpoint'&&<><label>ONU receiver sensitivity (dBm)<input type="number" step=".5" value={chosen.sensitivity??-27} onChange={e=>updateNode('sensitivity',Number(e.target.value))}/></label><label>Required engineering margin (dB)<input type="number" step=".5" value={chosen.requiredMargin??3} onChange={e=>updateNode('requiredMargin',Number(e.target.value))}/></label>{pathResult?.reachable&&<div className="rx-card"><small>ESTIMATED RECEIVED POWER</small><b>{n(pathResult.rx)} dBm</b><span>Optical margin: {n(pathResult.margin)} dB · {pathResult.pass?'Within configured margin':'Below configured margin'}</span></div>}</>}
-     
+
      </div></>}
     {link&&<><h3>Fiber segment</h3><p className="subtle">{pos(link.from)?.name} → {pos(link.to)?.name}</p>{(pos(link.from)?.type==='fbt'||pos(link.to)?.type==='fbt')&&<><label>FBT output port role<select value={link.fbtPort||'through'} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,fbtPort:e.target.value}:l))}><option value="tap">Tap output</option><option value="through">Through output</option></select></label><div className="calc-note">Applied when the optical path leaves the FBT node through this link. The incoming link setting is ignored.</div></>}
     <label>Fiber core configuration<select value={link.cores||'single'} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,cores:e.target.value}:l))}><option value="single">Single core</option><option value="dual">Dual core</option></select></label><div className="calc-note">Core count is a cable-planning attribute; optical loss is calculated per selected fiber path.</div><label>Route length (km)<input type="number" min="0" step=".01" value={link.km} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,km:Number(e.target.value)}:l))}/></label><label>Fiber attenuation (dB/km)<input type="number" min="0" step=".01" value={link.attenuation??settings.attenuation} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,attenuation:Number(e.target.value)}:l))}/></label><div className="field-grid"><label>Splices<input type="number" min="0" value={link.splices??0} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,splices:Number(e.target.value)}:l))}/></label><label>Connectors<input type="number" min="0" value={link.connectors??0} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,connectors:Number(e.target.value)}:l))}/></label></div><button className="danger full" onClick={deleteSelected}><Trash2 size={14}/> Delete fiber link</button></>}
@@ -314,4 +433,21 @@ function App(){
   <footer><Activity size={14}/> Fiber Planner Studio V8 · Optical budget is an engineering estimate, not a live measurement.</footer>
  </div>
 }
-createRoot(document.getElementById('root')).render(<App/>);
+
+function ApplicationRoot() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="auth-loading">
+      Restoring secure session...
+    </div>;
+  }
+
+  return user ? <App /> : <AuthPage />;
+}
+
+createRoot(document.getElementById('root')).render(
+  <AuthProvider>
+    <ApplicationRoot />
+  </AuthProvider>
+);
