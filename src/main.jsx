@@ -328,7 +328,7 @@ const [accountMenu, setAccountMenu] = useState(false);
       </button>
     </div>
   )}
-</div>   
+</div>
 </div>
    {projectMenu&&<div className="project-dropdown">
     <button onClick={()=>{saveProject();setProjectMenu(false)}}><Save size={15}/> Save project</button>
@@ -414,7 +414,7 @@ const [accountMenu, setAccountMenu] = useState(false);
      {chosen.type==='fbt'&&<><label>FBT tap output ratio (%)<select value={chosen.tapPercent??10} onChange={e=>updateNode('tapPercent',Number(e.target.value))}>{Object.keys(FBT_LOSS).filter(v=>Number(v)<=50).map(v=><option value={v} key={v}>{v}% tap / {100-Number(v)}% through</option>)}</select></label><div className="calc-note">Tap port loss: <b>{FBT_LOSS[chosen.tapPercent??10]} dB</b> · Through port loss: <b>{FBT_LOSS[100-(chosen.tapPercent??10)]} dB</b><br/>Choose Tap or Through on each outgoing fiber link from this FBT coupler. Values follow the supplied loss chart.</div></>}
      {chosen.type==='splitter'&&<><label>Splitter ratio<select value={chosen.ratio} onChange={e=>updateNode('ratio',Number(e.target.value))}>{[2,4,8,16,32,64].map(v=><option value={v} key={v}>1:{v}</option>)}</select></label><label>Excess insertion loss (dB)<input type="number" min="0" step=".1" value={chosen.excess??1.2} onChange={e=>updateNode('excess',Number(e.target.value))}/></label><div className="calc-note">Ideal split loss: <b>{n(10*Math.log10(chosen.ratio))} dB</b> + excess loss {n(chosen.excess)} dB</div></>}
      {chosen.type==='endpoint'&&<><label>ONU receiver sensitivity (dBm)<input type="number" step=".5" value={chosen.sensitivity??-27} onChange={e=>updateNode('sensitivity',Number(e.target.value))}/></label><label>Required engineering margin (dB)<input type="number" step=".5" value={chosen.requiredMargin??3} onChange={e=>updateNode('requiredMargin',Number(e.target.value))}/></label>{pathResult?.reachable&&<div className="rx-card"><small>ESTIMATED RECEIVED POWER</small><b>{n(pathResult.rx)} dBm</b><span>Optical margin: {n(pathResult.margin)} dB · {pathResult.pass?'Within configured margin':'Below configured margin'}</span></div>}</>}
-     
+
      </div></>}
     {link&&<><h3>Fiber segment</h3><p className="subtle">{pos(link.from)?.name} → {pos(link.to)?.name}</p>{(pos(link.from)?.type==='fbt'||pos(link.to)?.type==='fbt')&&<><label>FBT output port role<select value={link.fbtPort||'through'} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,fbtPort:e.target.value}:l))}><option value="tap">Tap output</option><option value="through">Through output</option></select></label><div className="calc-note">Applied when the optical path leaves the FBT node through this link. The incoming link setting is ignored.</div></>}
     <label>Fiber core configuration<select value={link.cores||'single'} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,cores:e.target.value}:l))}><option value="single">Single core</option><option value="dual">Dual core</option></select></label><div className="calc-note">Core count is a cable-planning attribute; optical loss is calculated per selected fiber path.</div><label>Route length (km)<input type="number" min="0" step=".01" value={link.km} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,km:Number(e.target.value)}:l))}/></label><label>Fiber attenuation (dB/km)<input type="number" min="0" step=".01" value={link.attenuation??settings.attenuation} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,attenuation:Number(e.target.value)}:l))}/></label><div className="field-grid"><label>Splices<input type="number" min="0" value={link.splices??0} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,splices:Number(e.target.value)}:l))}/></label><label>Connectors<input type="number" min="0" value={link.connectors??0} onChange={e=>setLinks(ls=>ls.map(l=>l.id===link.id?{...l,connectors:Number(e.target.value)}:l))}/></label></div><button className="danger full" onClick={deleteSelected}><Trash2 size={14}/> Delete fiber link</button></>}
@@ -451,4 +451,3 @@ createRoot(document.getElementById('root')).render(
     <ApplicationRoot />
   </AuthProvider>
 );
-
