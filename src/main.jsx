@@ -2,6 +2,9 @@ import React,{useEffect,useMemo,useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Activity,Plus,Link2,Trash2,Download,Upload,Save,MapPin,RadioTower,GitBranch,Monitor,Settings2,Calculator,Route,RotateCcw,Undo2,Redo2,Search,LocateFixed,Sun,Moon,Menu,Lock,Unlock} from 'lucide-react';
 import './style.css';
+import { AuthProvider, useAuth } from './auth/AuthProvider';
+import AuthPage from './auth/AuthPage';
+import { saveCloudProject, listCloudProjects, loadCloudProject, deleteCloudProject } from './lib/cloudProjects';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 
@@ -84,6 +87,9 @@ function compatibility(a,b){
  return {ok:true,reason:'Compatible fiber connection.'};
 }
 function App(){
+const { user, signOut } = useAuth();
+const [accountMenu, setAccountMenu] = useState(false);
+ const [cloudProjectId,setCloudProjectId]=useState(null);
  const [nodes,setNodes]=useState(()=>{try{const d=JSON.parse(localStorage.getItem('fiber-planner-v8')||localStorage.getItem('fiber-planner-v5')||'null');return d?.nodes||starterNodes}catch{return starterNodes}});
  const [links,setLinks]=useState(()=>{try{const d=JSON.parse(localStorage.getItem('fiber-planner-v8')||localStorage.getItem('fiber-planner-v5')||'null');return d?.links||starterLinks}catch{return starterLinks}});
  const [selected,setSelected]=useState('sp1'),[selectedLink,setSelectedLink]=useState(null);
@@ -116,6 +122,85 @@ function App(){
  },[nodes,links]);
  function travelHistory(delta){const h=historyRef.current,next=h.index+delta;if(next<0||next>=h.items.length)return;h.index=next;h.restoring=true;const d=JSON.parse(h.items[next]);setNodes(d.nodes);setLinks(d.links);}
  function saveProject(){try{localStorage.setItem('fiber-planner-v8',JSON.stringify({version:5,nodes,links,settings}));setSave('Saved');setNotice('Project saved on this device.')}catch{setSave('Save failed')}}
+ async function saveToCloud(){
+  if(!user?.id){setNotice('Please sign in first.');return;}
+  const name=prompt('Enter a name for this cloud project:', 'Fiber Planner Project');
+  if(!name?.trim())return;
+  try{
+   const saved=await saveCloudProject({
+    userId:user.id,
+    projectId:cloudProjectId,
+    name:name.trim(),
+    data:{version:5,nodes,links,settings}
+   });
+   setCloudProjectId(saved.id);
+   setNotice('Cloud project saved: '+saved.project_name);
+  }catch(error){
+   setNotice('Cloud save failed: '+error.message);
+  }
+ }
+
+ async function manageCloudProjects(){
+  if(!user?.id){setNotice('Please sign in first.');return;}
+  try{
+   const projects=await listCloudProjects(user.id);
+   if(!projects.length){setNotice('You have no cloud projects yet.');return;}
+   const choices=projects.map((p,i)=>
+    (i+1)+'. '+p.project_name+' — '+new Date(p.updated_at).toLocaleString()
+   ).join('\n');
+
+   const answer=prompt(
+    'MY CLOUD PROJECTS\n\n'+choices+
+    '\n\nEnter project number to manage:'
+   );
+   if(answer===null)return;
+
+   const index=Number(answer)-1;
+   if(!Number.isInteger(index)||index<0||index>=projects.length){
+    setNotice('Invalid project selection.');return;
+   }
+
+   const selectedProject=projects[index];
+   const action=prompt(
+    'Project: '+selectedProject.project_name+
+    '\n\nType L to load or D to delete.',
+    'L'
+   );
+   if(!action)return;
+
+   if(action.trim().toLowerCase()==='l'){
+    if(!confirm('Replace your current topology with this cloud project?'))return;
+
+    const record=await loadCloudProject(user.id,selectedProject.id);
+    const data=record.project_data;
+
+    if(!data||!Array.isArray(data.nodes)||!Array.isArray(data.links)){
+     setNotice('Invalid cloud project data.');return;
+    }
+
+    setNodes(data.nodes);
+    setLinks(data.links);
+    setSettings(data.settings||{
+     launch:5,attenuation:.35,spliceLoss:.1,
+     connectorLoss:.3,sensitivity:-27,margin:3
+    });
+    setCloudProjectId(record.id);
+    setNotice('Loaded: '+record.project_name);
+
+   }else if(action.trim().toLowerCase()==='d'){
+    if(!confirm('Permanently delete '+selectedProject.project_name+'?'))return;
+
+    await deleteCloudProject(user.id,selectedProject.id);
+    if(cloudProjectId===selectedProject.id)setCloudProjectId(null);
+    setNotice('Cloud project deleted.');
+   }else{
+    setNotice('No action taken.');
+   }
+  }catch(error){
+   setNotice('Cloud operation failed: '+error.message);
+  }
+ }
+
  function locateMap(){if(!navigator.geolocation){setNotice('Location is not supported by this browser.');return;}navigator.geolocation.getCurrentPosition(pos=>{const {latitude,longitude}=pos.coords;if(geoMapRef.current){geoMapRef.current.setView([latitude,longitude],17);L.marker([latitude,longitude]).addTo(geoMapRef.current).bindPopup('Your current location').openPopup();}setNotice(`Map centered at ${latitude.toFixed(6)}, ${longitude.toFixed(6)}.`)},err=>setNotice('Location unavailable: '+err.message),{enableHighAccuracy:true,timeout:12000});}
  async function searchMap(){const q=mapQuery.trim();if(!q)return;const coords=q.match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);if(coords){const lat=Number(coords[1]),lon=Number(coords[2]);if(Math.abs(lat)<=90&&Math.abs(lon)<=180){geoMapRef.current?.setView([lat,lon],17);setNotice(`Map centered at ${lat.toFixed(6)}, ${lon.toFixed(6)}.`);return;}}setMapSearchBusy(true);try{const res=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`);const data=await res.json();if(!data.length){setNotice('No matching map location found.');return;}const lat=Number(data[0].lat),lon=Number(data[0].lon);if(geoMapRef.current)geoMapRef.current.setView([lat,lon],16);setNotice(`Found ${data[0].display_name}`);}catch{setNotice('Map search failed. Check your internet connection.')}finally{setMapSearchBusy(false);}}
  useEffect(()=>{
@@ -212,9 +297,43 @@ function App(){
     <button title="Redo" disabled={historyRef.current.index>=historyRef.current.items.length-1} onClick={()=>travelHistory(1)}><Redo2 size={17}/></button>
     <button title="Save project" onClick={saveProject}><Save size={17}/></button>
     <button title="Toggle theme" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')}>{theme==='dark'?<Sun size={17}/>:<Moon size={17}/>}</button>
-   </div>
+<div className="account-wrapper">
+  <button
+    className="account-button"
+    onClick={() => setAccountMenu(v => !v)}
+    title="Account settings"
+  >
+    <Lock size={17}/>
+    Account
+  </button>
+
+  {accountMenu && (
+    <div className="account-dropdown">
+      <strong>Authenticated user</strong>
+      <small>{user?.email}</small>
+
+      <button onClick={async () => {
+        if (!confirm('Are you sure you want to sign out?')) return;
+
+        const { error } = await signOut();
+
+        if (error) {
+          setNotice(error.message);
+        } else {
+          setAccountMenu(false);
+        }
+      }}>
+        <Unlock size={15}/>
+        Sign out
+      </button>
+    </div>
+  )}
+</div>   
+</div>
    {projectMenu&&<div className="project-dropdown">
     <button onClick={()=>{saveProject();setProjectMenu(false)}}><Save size={15}/> Save project</button>
+      <button onClick={()=>{saveToCloud();setProjectMenu(false)}}><Save size={15}/> Save to Cloud</button>
+      <button onClick={()=>{manageCloudProjects();setProjectMenu(false)}}><Download size={15}/> My Cloud Projects</button>
     <button onClick={()=>{exportJSON();setProjectMenu(false)}}><Download size={15}/> Export project JSON</button>
     <button onClick={()=>{importRef.current.click();setProjectMenu(false)}}><Upload size={15}/> Import project</button>
     <button onClick={()=>{exportCSV();setProjectMenu(false)}}><Calculator size={15}/> Export optical budget CSV</button>
@@ -314,4 +433,22 @@ function App(){
   <footer><Activity size={14}/> Fiber Planner Studio V8 · Optical budget is an engineering estimate, not a live measurement.</footer>
  </div>
 }
-createRoot(document.getElementById('root')).render(<App/>);
+
+function ApplicationRoot() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return <div className="auth-loading">
+      Restoring secure session...
+    </div>;
+  }
+
+  return user ? <App /> : <AuthPage />;
+}
+
+createRoot(document.getElementById('root')).render(
+  <AuthProvider>
+    <ApplicationRoot />
+  </AuthProvider>
+);
+

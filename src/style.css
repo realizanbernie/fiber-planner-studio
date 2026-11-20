@@ -502,3 +502,124 @@
  .replace-option{min-height:56px}
 }
 @media(max-width:370px){.header-action span{display:none}.header-action{width:36px;padding:0}.inspector-header-actions{gap:4px}}
+/* ACCOUNT MENU */
+.account-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.account-button {
+  min-height: 40px;
+  border-color: #31536b;
+  color: #80eeee;
+}
+
+.account-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 9999;
+  width: 240px;
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: #0b1e2d;
+  border: 1px solid #31536b;
+  border-radius: 13px;
+  box-shadow: 0 12px 35px #0009;
+  animation: accountEnter .18s ease-out;
+}
+
+.account-dropdown strong {
+  color: #80eeee;
+  font-size: 12px;
+}
+
+.account-dropdown small {
+  color: #91a9ba;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.account-dropdown button {
+  width: 100%;
+  justify-content: center;
+  color: #ffaaa5;
+  border-color: #704447;
+}
+
+@keyframes accountEnter {
+  from {
+    opacity: 0;
+    transform: translateY(-7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media(max-width:480px) {
+  .account-dropdown {
+    right: 0;
+    width: min(240px, 75vw);
+  }
+}
+
+/* ACCOUNT DROPDOWN MOBILE OVERFLOW FIX */
+.account-dropdown {
+  box-sizing: border-box;
+  width: 240px;
+  max-width: calc(100vw - 24px);
+  right: 0;
+  left: auto;
+  overflow: hidden;
+}
+
+.account-dropdown small {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.account-dropdown button {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+@media (max-width: 480px) {
+  .account-dropdown {
+    width: min(240px, calc(100vw - 24px));
+  }
+}
+
+/* V14.1 MOBILE HEADER - SIX CONTROL LAYOUT */
+@media (max-width: 390px) {
+  .header-tools {
+    display: grid;
+    grid-template-columns:
+      minmax(100px, 1.25fr)
+      repeat(4, minmax(36px, .5fr))
+      minmax(68px, .8fr);
+    gap: 5px;
+    align-items: center;
+  }
+
+  .header-tools > button,
+  .header-tools > .account-wrapper {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .header-tools .account-button {
+    padding: 0 4px;
+    gap: 3px;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .account-wrapper {
+    justify-content: stretch;
+  }
+}
